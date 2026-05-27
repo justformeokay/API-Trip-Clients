@@ -106,6 +106,7 @@ final class Router
 
         foreach ($this->routes as $routeMethod => $routes) {
             foreach ($routes as $route) {
+                $params = [];
                 if ($this->matchUri($route['pattern'], $uri, $params)) {
                     $matchedMethod = true;
                     if ($routeMethod === $method) {
