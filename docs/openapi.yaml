@@ -1,0 +1,841 @@
+openapi: 3.1.0
+info:
+  title: HealingYuk REST API
+  description: |
+    **HealingYuk** is a travel and open-trip marketplace platform connecting travelers
+    with tour organizers across Indonesia.
+
+    ## Authentication
+    Most endpoints require a **JWT Bearer Token** in the `Authorization` header:
+    ```
+    Authorization: Bearer <access_token>
+    ```
+
+    Access tokens expire in **15 minutes**. Use the `/auth/refresh` endpoint with your
+    `refresh_token` to obtain a new access token (token rotation is enforced).
+
+    ## Standard Response Envelope
+    All responses follow this structure:
+    ```json
+    {
+      "success": true | false,
+      "message": "Human-readable message",
+      "data": { ... } | [ ... ] | null,
+      "meta": { "total": 100, "page": 1, "limit": 15, "total_pages": 7 }
+    }
+    ```
+
+    ## Error Response
+    ```json
+    {
+      "success": false,
+      "message": "Validation failed",
+      "errors": {
+        "email": ["Email is required", "Must be a valid email address"]
+      }
+    }
+    ```
+  version: 1.0.0
+  contact:
+    name: HealingYuk Engineering
+    email: tech@healingyuk.com
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.healingyuk.com/api/v1
+    description: Production
+  - url: https://staging-api.healingyuk.com/api/v1
+    description: Staging
+  - url: http://localhost:8000/api/v1
+    description: Local Development
+
+tags:
+  - name: Health
+    description: API health check
+  - name: Authentication
+    description: Register, login, token management
+  - name: Trips
+    description: Public trip listing, detail, and featured trips
+  - name: Search
+    description: Trip search with filters and geo-radius
+  - name: Bookings
+    description: Booking management (requires authentication)
+  - name: User
+    description: Authenticated user profile management
+
+# ====================================================================
+# COMPONENTS
+# ====================================================================
+components:
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    LimitParam:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 15
+
+  schemas:
+
+    # ---- Common ----
+    SuccessResponse:
+      type: object
+      properties:
+        success:  { type: boolean, example: true }
+        message:  { type: string,  example: "Success" }
+        data:     { }
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:  { type: boolean, example: false }
+        message:  { type: string,  example: "Validation failed" }
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+
+    PaginationMeta:
+      type: object
+      properties:
+        total:       { type: integer, example: 100 }
+        page:        { type: integer, example: 1 }
+        limit:       { type: integer, example: 15 }
+        total_pages: { type: integer, example: 7 }
+
+    # ---- Auth ----
+    RegisterRequest:
+      type: object
+      required: [name, email, password, password_confirmation]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+          example: "Budi Santoso"
+        email:
+          type: string
+          format: email
+          example: "budi@example.com"
+        password:
+          type: string
+          minLength: 8
+          example: "SecurePass@123"
+        password_confirmation:
+          type: string
+          example: "SecurePass@123"
+        phone:
+          type: string
+          example: "+62811234567"
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:    { type: string, format: email, example: "budi@example.com" }
+        password: { type: string, example: "SecurePass@123" }
+
+    AuthTokenResponse:
+      type: object
+      properties:
+        user:          { $ref: '#/components/schemas/UserPublic' }
+        access_token:  { type: string }
+        refresh_token: { type: string }
+        token_type:    { type: string, example: "Bearer" }
+        expires_in:    { type: integer, example: 900, description: "Seconds until access token expires" }
+
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token: { type: string }
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+
+    ResetPasswordRequest:
+      type: object
+      required: [token, password, password_confirmation]
+      properties:
+        token:                 { type: string }
+        password:              { type: string, minLength: 8 }
+        password_confirmation: { type: string }
+
+    # ---- User ----
+    UserPublic:
+      type: object
+      properties:
+        id:              { type: integer, example: 1 }
+        name:            { type: string,  example: "Budi Santoso" }
+        email:           { type: string,  example: "budi@example.com" }
+        role:            { type: string,  enum: [user, organizer, admin] }
+        phone:           { type: string,  example: "+62811234567" }
+        avatar_url:      { type: string,  nullable: true }
+        email_verified:  { type: boolean }
+        is_active:       { type: boolean }
+        created_at:      { type: string,  format: date-time }
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        name:  { type: string, minLength: 2, maxLength: 100 }
+        phone: { type: string, maxLength: 20 }
+
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, password, password_confirmation]
+      properties:
+        current_password:      { type: string }
+        password:              { type: string, minLength: 8 }
+        password_confirmation: { type: string }
+
+    # ---- Trip ----
+    Trip:
+      type: object
+      properties:
+        id:               { type: integer }
+        organizer_id:     { type: integer }
+        organizer_name:   { type: string }
+        category_id:      { type: integer }
+        category_name:    { type: string }
+        destination_id:   { type: integer }
+        destination_name: { type: string }
+        destination_city: { type: string }
+        title:            { type: string,  example: "Open Trip Rinjani 3D2N" }
+        slug:             { type: string,  example: "open-trip-rinjani-3d2n" }
+        description:      { type: string }
+        price:            { type: number,  example: 1250000 }
+        discount_price:   { type: number,  nullable: true }
+        effective_price:  { type: number,  example: 1250000 }
+        total_slots:      { type: integer, example: 15 }
+        available_slots:  { type: integer, example: 8 }
+        departure_date:   { type: string,  format: date-time }
+        return_date:      { type: string,  format: date-time, nullable: true }
+        duration_days:    { type: integer, example: 3 }
+        meeting_point:    { type: string,  example: "Sembalun, Lombok Timur" }
+        latitude:         { type: number,  format: float }
+        longitude:        { type: number,  format: float }
+        status:           { type: string,  enum: [draft, active, full, completed, cancelled] }
+        is_featured:      { type: boolean }
+        cover_image:      { type: string,  nullable: true }
+        includes:         { type: array,   items: { type: string } }
+        excludes:         { type: array,   items: { type: string } }
+        itinerary:        { type: array }
+        created_at:       { type: string,  format: date-time }
+        updated_at:       { type: string,  format: date-time }
+
+    # ---- Booking ----
+    Booking:
+      type: object
+      properties:
+        id:            { type: integer }
+        booking_code:  { type: string,  example: "HYK-20260527-A1B2C3" }
+        user_id:       { type: integer }
+        trip_id:       { type: integer }
+        trip_title:    { type: string }
+        departure_date:{ type: string,  format: date-time }
+        participants:  { type: integer, example: 2 }
+        total_amount:  { type: number,  example: 2500000 }
+        status:        { type: string,  enum: [pending, confirmed, cancelled, completed] }
+        cancel_reason: { type: string,  nullable: true }
+        cancelled_at:  { type: string,  format: date-time, nullable: true }
+        created_at:    { type: string,  format: date-time }
+
+    CreateBookingRequest:
+      type: object
+      required: [trip_id, participants]
+      properties:
+        trip_id:      { type: integer, example: 1 }
+        participants: { type: integer, minimum: 1, maximum: 100, example: 2 }
+
+    CancelBookingRequest:
+      type: object
+      properties:
+        reason: { type: string, maxLength: 500, example: "Change of plans" }
+
+# ====================================================================
+# PATHS
+# ====================================================================
+paths:
+
+  /health:
+    get:
+      tags: [Health]
+      summary: API health check
+      security: []
+      responses:
+        '200':
+          description: API is running
+          content:
+            application/json:
+              example:
+                success: true
+                message: "HealingYuk API is running."
+                version: "1.0.0"
+                time: "2026-05-27T10:00:00+07:00"
+
+  # ==================================================================
+  # AUTHENTICATION
+  # ==================================================================
+
+  /auth/register:
+    post:
+      tags: [Authentication]
+      summary: Register a new user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          user: { $ref: '#/components/schemas/UserPublic' }
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Login and receive tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/AuthTokenResponse' }
+        '401':
+          description: Invalid credentials
+        '422':
+          description: Validation error
+        '429':
+          description: Too many login attempts
+
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Refresh access token (token rotation)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: New token pair issued
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          access_token:  { type: string }
+                          refresh_token: { type: string }
+                          token_type:    { type: string }
+                          expires_in:    { type: integer }
+        '401':
+          description: Invalid or expired refresh token
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Logout (revoke current session)
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token: { type: string }
+      responses:
+        '200':
+          description: Logged out successfully
+        '401':
+          description: Unauthorized
+
+  /auth/logout-all:
+    post:
+      tags: [Authentication]
+      summary: Logout from all devices
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: Logged out from all devices
+
+  /auth/forgot-password:
+    post:
+      tags: [Authentication]
+      summary: Request password reset email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ForgotPasswordRequest' }
+      responses:
+        '200':
+          description: Reset email sent (if account exists)
+
+  /auth/reset-password:
+    post:
+      tags: [Authentication]
+      summary: Reset password with token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResetPasswordRequest' }
+      responses:
+        '200':
+          description: Password reset successfully
+        '401':
+          description: Invalid or expired token
+
+  /auth/verify-email:
+    get:
+      tags: [Authentication]
+      summary: Verify email address
+      security: []
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Email verified
+        '401':
+          description: Invalid token
+
+  # ==================================================================
+  # USER PROFILE
+  # ==================================================================
+
+  /me:
+    get:
+      tags: [User]
+      summary: Get authenticated user profile
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: Profile data
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/UserPublic' }
+        '401':
+          description: Unauthorized
+
+    patch:
+      tags: [User]
+      summary: Update profile (name, phone)
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateProfileRequest' }
+      responses:
+        '200':
+          description: Profile updated
+        '422':
+          description: Validation error
+
+  /me/change-password:
+    post:
+      tags: [User]
+      summary: Change password
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangePasswordRequest' }
+      responses:
+        '200':
+          description: Password changed
+        '422':
+          description: Validation or current password error
+
+  # ==================================================================
+  # TRIPS — PUBLIC
+  # ==================================================================
+
+  /trips:
+    get:
+      tags: [Trips]
+      summary: Get all trips (paginated, filterable, sortable)
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - name: sort
+          in: query
+          schema: { type: string, enum: [price, departure_date, created_at, available_slots, title], default: created_at }
+        - name: order
+          in: query
+          schema: { type: string, enum: [asc, desc], default: desc }
+        - name: category_id
+          in: query
+          schema: { type: integer }
+        - name: destination_id
+          in: query
+          schema: { type: integer }
+        - name: price_min
+          in: query
+          schema: { type: number }
+        - name: price_max
+          in: query
+          schema: { type: number }
+        - name: departure_from
+          in: query
+          schema: { type: string, format: date }
+        - name: departure_to
+          in: query
+          schema: { type: string, format: date }
+        - name: min_slots
+          in: query
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: Paginated trip list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Trip' }
+                      meta: { $ref: '#/components/schemas/PaginationMeta' }
+
+  /trips/featured:
+    get:
+      tags: [Trips]
+      summary: Get featured trips
+      security: []
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 20, default: 8 }
+      responses:
+        '200':
+          description: Featured trips
+
+  /trips/search:
+    get:
+      tags: [Search]
+      summary: Search trips with keyword, filters, and optional geo-radius
+      description: |
+        Supports full-text keyword search, price/date/slot filters, and
+        **geospatial radius search** using the Haversine formula.
+
+        ### Radius Search Example
+        ```
+        GET /trips/search?latitude=-8.4111&longitude=116.4671&radius_km=50
+        ```
+        Returns all active trips within 50 km of the given coordinates,
+        sorted by distance ascending.
+      security: []
+      parameters:
+        - name: keyword
+          in: query
+          schema: { type: string, example: "Rinjani" }
+        - name: destination
+          in: query
+          schema: { type: string, example: "Lombok" }
+        - name: category_id
+          in: query
+          schema: { type: integer }
+        - name: destination_id
+          in: query
+          schema: { type: integer }
+        - name: departure_date
+          in: query
+          schema: { type: string, format: date }
+        - name: departure_from
+          in: query
+          schema: { type: string, format: date }
+        - name: departure_to
+          in: query
+          schema: { type: string, format: date }
+        - name: price_min
+          in: query
+          schema: { type: number }
+        - name: price_max
+          in: query
+          schema: { type: number }
+        - name: min_slots
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: latitude
+          in: query
+          description: User's current latitude (for radius search)
+          schema: { type: number, format: float, example: -8.4111 }
+        - name: longitude
+          in: query
+          description: User's current longitude (for radius search)
+          schema: { type: number, format: float, example: 116.4671 }
+        - name: radius_km
+          in: query
+          description: Search radius in km (requires latitude + longitude)
+          schema: { type: number, minimum: 1, maximum: 500, default: 50 }
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Trip' }
+                      meta: { $ref: '#/components/schemas/PaginationMeta' }
+                      search_center:
+                        type: object
+                        properties:
+                          latitude:  { type: number }
+                          longitude: { type: number }
+                          radius_km: { type: number }
+        '422':
+          description: Invalid search parameters
+
+  /trips/{id}:
+    get:
+      tags: [Trips]
+      summary: Get trip by ID
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Trip detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Trip' }
+        '404':
+          description: Trip not found
+
+  /trips/slug/{slug}:
+    get:
+      tags: [Trips]
+      summary: Get trip by slug
+      security: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Trip detail
+        '404':
+          description: Trip not found
+
+  /categories:
+    get:
+      tags: [Trips]
+      summary: Get all trip categories
+      security: []
+      responses:
+        '200':
+          description: Category list
+
+  /destinations:
+    get:
+      tags: [Trips]
+      summary: Get all destinations (paginated)
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Destination list
+
+  /destinations/popular:
+    get:
+      tags: [Trips]
+      summary: Get popular destinations (sorted by trip count)
+      security: []
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 10 }
+      responses:
+        '200':
+          description: Popular destinations
+
+  # ==================================================================
+  # BOOKINGS — AUTHENTICATED
+  # ==================================================================
+
+  /bookings:
+    get:
+      tags: [Bookings]
+      summary: Get current user's booking history
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Booking history
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Booking' }
+                      meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '401':
+          description: Unauthorized
+
+    post:
+      tags: [Bookings]
+      summary: Create a new booking
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateBookingRequest' }
+      responses:
+        '201':
+          description: Booking created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Booking' }
+        '401':
+          description: Unauthorized
+        '404':
+          description: Trip not found
+        '422':
+          description: Validation error (duplicate booking, no slots, etc.)
+
+  /bookings/{id}:
+    get:
+      tags: [Bookings]
+      summary: Get booking detail by ID
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Booking detail
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden (not your booking)
+        '404':
+          description: Booking not found
+
+  /bookings/{id}/cancel:
+    patch:
+      tags: [Bookings]
+      summary: Cancel a booking
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CancelBookingRequest' }
+      responses:
+        '200':
+          description: Booking cancelled
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Booking not found
+        '422':
+          description: Cannot cancel (already cancelled or completed)

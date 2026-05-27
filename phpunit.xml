@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         colors="true"
+         failOnRisky="true"
+         failOnWarning="true"
+         processIsolation="false"
+         stopOnFailure="false">
+
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Integration">
+            <directory>tests/Integration</directory>
+        </testsuite>
+    </testsuites>
+
+    <coverage processUncoveredFiles="true">
+        <include>
+            <directory suffix=".php">app</directory>
+        </include>
+        <exclude>
+            <directory>app/Core</directory>
+        </exclude>
+        <report>
+            <html outputDirectory="coverage" lowUpperBound="50" highLowerBound="90"/>
+            <text outputFile="coverage.txt" showUncoveredFiles="false"/>
+        </report>
+    </coverage>
+
+    <php>
+        <env name="APP_ENV"          value="testing"/>
+        <env name="DB_DATABASE"      value="healingyuk_test"/>
+        <env name="JWT_SECRET"       value="test_secret_key_at_least_32_characters!!"/>
+        <env name="JWT_ACCESS_TTL"   value="900"/>
+        <env name="JWT_REFRESH_TTL"  value="86400"/>
+    </php>
+
+</phpunit>
